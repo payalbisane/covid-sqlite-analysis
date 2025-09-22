@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?><sqlb_project><db path="covid_analysis.db" readonly="0" foreign_keys="1" case_sensitive_like="0" temp_store="0" wal_autocheckpoint="1000" synchronous="2"/><attached/><window><main_tabs open="structure pragmas query" current="2"/></window><tab_structure><column_width id="0" width="300"/><column_width id="1" width="0"/><column_width id="2" width="100"/><column_width id="3" width="1507"/><column_width id="4" width="0"/><expanded_item id="0" parent="1"/><expanded_item id="1" parent="1"/><expanded_item id="2" parent="1"/><expanded_item id="3" parent="1"/></tab_structure><tab_browse><table title="covid_raw" custom_title="0" dock_id="2" table="4,9:maincovid_raw"/><dock_state state="000000ff00000000fd00000001000000020000000000000000fc0100000002fb000000160064006f0063006b00420072006f00770073006500310100000000ffffffff0000000000000000fb000000160064006f0063006b00420072006f00770073006500320100000000ffffffff0000011800ffffff000000000000000000000004000000040000000800000008fc00000000"/><default_encoding codec=""/><browse_table_settings/></tab_browse><tab_sql><sql name="SQL 1*">DROP TABLE IF EXISTS covid;
+
+CREATE TABLE covid AS
+SELECT
+    country,
+    continent,
+    population,
+    date(day) AS report_date,
+    COALESCE(Cases, 0) AS total_cases,
+    COALESCE(Recovered, 0) AS total_recovered,
+    COALESCE(Deaths, 0) AS total_deaths,
+    COALESCE(Tests, 0) AS total_tests
+FROM covid_raw
+WHERE country IS NOT NULL;
+
+
+-- Add primary key
+ALTER TABLE covid ADD COLUMN id INTEGER PRIMARY KEY AUTOINCREMENT;
+
+-- Optional normalization (if needed)
+-- Countries table
+CREATE TABLE countries (
+    country TEXT PRIMARY KEY,
+    continent TEXT,
+    population INTEGER
+);
+
+INSERT OR IGNORE INTO countries
+SELECT DISTINCT country, continent, population
+FROM covid;
+
+-- Facts table
+CREATE TABLE covid_stats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    country TEXT,
+    report_date DATE,
+    total_cases INTEGER,
+    total_recovered INTEGER,
+    total_deaths INTEGER,
+    total_tests INTEGER,
+    FOREIGN KEY(country) REFERENCES countries(country)
+);
+
+INSERT INTO covid_stats (country, report_date, total_cases, total_recovered, total_deaths, total_tests)
+SELECT country, report_date, total_cases, total_recovered, total_deaths, total_tests
+FROM covid;
+
+
+
+--Analytical Queries
+--Top 10 countries by cases
+
+SELECT country, MAX(total_cases) AS cases
+FROM covid_stats
+GROUP BY country
+ORDER BY cases DESC
+LIMIT 10;
+
+
+--Global daily trend of cases
+
+SELECT report_date, SUM(total_cases) AS daily_cases
+FROM covid_stats
+GROUP BY report_date
+ORDER BY report_date;
+
+
+--Recovery rate by country
+
+SELECT country,
+       MAX(total_recovered) * 100.0 / MAX(total_cases) AS recovery_rate
+FROM covid_stats
+WHERE total_cases &gt; 1000
+GROUP BY country
+ORDER BY recovery_rate DESC
+LIMIT 10;
+
+
+--Mortality rate by continent
+
+SELECT c.continent,
+       SUM(s.total_deaths) * 100.0 / SUM(s.total_cases) AS mortality_rate
+FROM covid_stats s
+JOIN countries c ON s.country = c.country
+WHERE c.continent IS NOT NULL
+GROUP BY c.continent;
+
+
+-- Testing coverage
+
+SELECT c.country,
+       MAX(s.total_tests) * 100.0 / c.population AS test_coverage
+FROM covid_stats s
+JOIN countries c ON s.country = c.country
+WHERE c.population IS NOT NULL
+GROUP BY c.country
+ORDER BY test_coverage DESC
+LIMIT 10;
+
+
+
+
+--Use GROUP BY + Window Functions
+--Rank countries by cases
+
+SELECT country, MAX(total_cases) AS cases,
+       RANK() OVER (ORDER BY MAX(total_cases) DESC) AS rank
+FROM covid_stats
+GROUP BY country;
+
+
+--Moving average of global cases (7-day)
+
+SELECT report_date,
+       SUM(total_cases) AS daily_cases,
+       AVG(SUM(total_cases)) OVER (ORDER BY report_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS moving_avg
+FROM covid_stats
+GROUP BY report_date
+ORDER BY report_date;
+
+
+
+
+
+
+
+
+
+</sql><current_tab id="0"/></tab_sql></sqlb_project>
